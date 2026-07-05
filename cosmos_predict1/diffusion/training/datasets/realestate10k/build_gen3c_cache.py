@@ -190,12 +190,24 @@ def run_vggt_inference(model, rgb_frames: torch.Tensor, image_resolution: int, d
         (vggt_H, vggt_W),
     )
 
-    depth = predictions["depth"]  # (T,H_vggt,W_vggt,1)
+    depth = predictions["depth"]  # (T,H_vggt,W_vggt,1) or (T,1,H_vggt,W_vggt)
 
     # Resize depth and intrinsics back to original frame resolution
     extrinsics_np = extrinsics.cpu().numpy()  # (T,3,4)
     intrinsics_np = intrinsics.cpu().numpy()  # (T,3,3)
-    depth_np = depth.cpu().numpy()  # (T,H_vggt,W_vggt,1)
+    depth_cpu = depth.cpu().float()
+
+    print(f"    [VGGT] depth shape: {depth_cpu.shape}, extrinsics: {extrinsics_np.shape}, intrinsics: {intrinsics_np.shape}")
+
+    # Normalize depth shape to (T, 1, H, W) for interpolation
+    if depth_cpu.ndim == 4 and depth_cpu.shape[-1] == 1:
+        # Shape is (T, H, W, 1), permute to (T, 1, H, W)
+        depth_tensor = depth_cpu.permute(0, 3, 1, 2)
+    elif depth_cpu.ndim == 4 and depth_cpu.shape[1] == 1:
+        # Already (T, 1, H, W)
+        depth_tensor = depth_cpu
+    else:
+        raise ValueError(f"Unexpected depth shape from VGGT: {depth_cpu.shape}")
 
     # Scale intrinsics from vggt resolution to target resolution
     scale_x = W / vggt_W
@@ -207,12 +219,13 @@ def run_vggt_inference(model, rgb_frames: torch.Tensor, image_resolution: int, d
     intrinsics_scaled[:, 1, 2] = intrinsics_np[:, 1, 2] * scale_y  # cy
 
     # Resize depth to original resolution
-    depth_resized = torch.nn.functional.interpolate(
-        torch.from_numpy(depth_np).permute(0, 3, 1, 2).float(),
+    depth_resized_tensor = torch.nn.functional.interpolate(
+        depth_tensor,
         size=(H, W),
         mode="bilinear",
         align_corners=False,
-    ).permute(0, 2, 3, 1).numpy()  # (T,H,W,1)
+    )
+    depth_resized = depth_resized_tensor.permute(0, 2, 3, 1).numpy()  # (T,H,W,1)
 
     # Convert extrinsics (camera-from-world, OpenCV) to w2c (4x4)
     w2c_list = []
