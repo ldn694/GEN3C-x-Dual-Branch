@@ -267,6 +267,8 @@ def parse_args():
     p.add_argument("--num-workers", type=int, default=2)
     p.add_argument("--overwrite", action="store_true", help="Recompute even if the output exists.")
     p.add_argument("--limit", type=int, default=-1, help="Debug: only process the first N clips.")
+    p.add_argument("--start-index", type=int, default=0, help="Start from this valid sample index (0-indexed). Useful for multi-GPU parallel processing.")
+    p.add_argument("--end-index", type=int, default=-1, help="Stop at this valid sample index (exclusive). If -1, run until the end. Useful for multi-GPU parallel processing.")
     p.add_argument("--rerun-vggt", action="store_true", help="Infer depth/cameras from video using VGGT-Omega instead of preprocessed data.")
     p.add_argument("--vggt-checkpoint", default=None, help="Path to VGGT-Omega checkpoint (required if --rerun-vggt is set).")
     p.add_argument("--vggt-image-resolution", type=int, default=512, help="Image resolution for VGGT-Omega inference.")
@@ -302,14 +304,34 @@ def main():
 
     manifest = []
     processed = 0
+    valid_index = 0
     total_items = len(loader)
+
+    # Determine the actual end index for this run
+    end_index = args.end_index if args.end_index > 0 else total_items
+    end_index = min(end_index, total_items)
+
+    # Validate start/end indices
+    if args.start_index >= end_index:
+        print(f"Error: start_index ({args.start_index}) must be < end_index ({end_index})")
+        return
+
+    actual_items_to_process = end_index - args.start_index
+    print(f"Processing {actual_items_to_process} valid samples (indices {args.start_index}:{end_index} of {total_items} total)")
+
     start_time = time.time()
     for item in loader:
+        # Check if this sample is in the requested range
+        if valid_index < args.start_index or valid_index >= end_index:
+            valid_index += 1
+            continue
+
         clip_start_time = time.time()
         sample_id = item["sample_id"]
         out_path = os.path.join(out_dir, f"{sample_id}.pt")
         if os.path.exists(out_path) and not args.overwrite:
             manifest.append(sample_id)
+            valid_index += 1
             continue
 
         # ---- target video latent -------------------------------------------------------
@@ -371,18 +393,19 @@ def main():
         }, out_path)
         manifest.append(sample_id)
         processed += 1
+        valid_index += 1
 
         # ---- timing and ETA ----
         elapsed_clip = time.time() - clip_start_time
         elapsed_total = time.time() - start_time
         avg_time_per_clip = elapsed_total / processed
-        remaining_items = total_items - processed
+        remaining_items = actual_items_to_process - processed
         eta_seconds = avg_time_per_clip * remaining_items
         eta_str = str(timedelta(seconds=int(eta_seconds)))
         elapsed_str = str(timedelta(seconds=int(elapsed_total)))
 
         geom_src = "vggt" if args.rerun_vggt else "voyager"
-        print(f"[{processed}/{total_items}] {elapsed_clip:.1f}s  |  "
+        print(f"[{processed}/{actual_items_to_process}] {elapsed_clip:.1f}s  |  "
               f"video={tuple(video_latent.shape)} pose={tuple(condition_pose_latent.shape)} "
               f"t5={tuple(t5_emb.shape)} geom={geom_src}  |  "
               f"elapsed={elapsed_str} eta={eta_str}")
