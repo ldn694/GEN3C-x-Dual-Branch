@@ -15,6 +15,8 @@ No existing GEN3C files are modified.
 
 ## Run (on the GPU server)
 
+### Default: Voyager's preprocessed cameras/depth
+
 ```bash
 CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
   cosmos_predict1/diffusion/training/datasets/realestate10k/build_gen3c_cache.py \
@@ -25,7 +27,41 @@ CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
   --limit 3            # start small, then drop --limit for the full run
 ```
 
-Then **verify before the mass run** (decodes latents back to mp4, GT on top / warped-condition below):
+### Alternative: VGGT-Omega geometry inference
+
+To rebuild geometry (cameras + depth) from scratch using VGGT-Omega instead of Voyager's
+preprocessed values:
+
+```bash
+CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
+  cosmos_predict1/diffusion/training/datasets/realestate10k/build_gen3c_cache.py \
+  --dataset-root /path/to/realestate10k \
+  --set-name refined_train_10pct \
+  --checkpoint-dir checkpoints \
+  --output-dir datasets/gen3c_re10k \
+  --rerun-vggt \
+  --vggt-checkpoint /path/to/vggt_omega_1b_512.pt \
+  --vggt-image-resolution 512 \
+  --limit 3
+```
+
+**Requirements:**
+- Download VGGT-Omega checkpoint from [HuggingFace](https://huggingface.co/facebook/VGGT-Omega): 
+  - `vggt_omega_1b_512.pt` (512px resolution, default)
+  - or `vggt_omega_1b_256_text.pt` (256px, lower memory)
+- VGGT-Omega package must be installed: `pip install -e /path/to/vggt-omega`
+
+**What happens with --rerun-vggt:**
+1. First 121 frames loaded from RealEstate10K raw JPGs
+2. VGGT-Omega infers per-frame cameras (extrinsics + intrinsics) and depth
+3. All outputs resized back to 704×1280 target resolution
+4. Used for 3D warping in Cache3D_Buffer (same as Voyager path)
+5. Metadata includes `"geometry_source": "vggt-omega"` instead of `"voyager"`
+
+### Verification
+
+After the run, **verify before mass deployment** (decodes latents back to mp4, GT on top / 
+warped-condition below):
 
 ```bash
 CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
@@ -33,6 +69,9 @@ CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
   --cache-dir datasets/gen3c_re10k/refined_train_10pct \
   --out-dir datasets/gen3c_re10k/_verify --num 3
 ```
+
+Watch for correct parallax and disocclusion holes in the warped-condition video (frames 1–120);
+frame 0 always looks perfect since target cam 0 == source cam.
 
 ## Design choices (locked)
 
@@ -46,14 +85,25 @@ CUDA_HOME=$CONDA_PREFIX PYTHONPATH=$(pwd) python \
 
 ## Verify on the first real run (can't be checked offline)
 
-1. **Depth scale / units.** Metric z = `1/inverse_depth`. `Cache3D_Base.__init__` clamps depth to
-   `[0, 100]`. If RealEstate's reconstruction scale puts typical z outside that range the parallax
+### Always check:
+
+1. **Depth scale / units.** Metric z = `1/inverse_depth` for Voyager, or direct from VGGT.
+   `Cache3D_Base.__init__` clamps depth to `[0, 100]`. If typical z is outside that range the parallax
    breaks — the warped-condition video in `verify_cache` is the tell (frame 0 always looks perfect
    since target cam 0 == source cam; watch frames 1..120 for correct parallax + disocclusion holes).
-2. **Intrinsics units.** The loader auto-converts normalized→pixel intrinsics via a `fx<1` heuristic;
-   confirm `intrinsic[0]` has `fx≈` hundreds–thousands, `cx≈640`.
+2. **Intrinsics units.** For Voyager: auto-converts normalized→pixel via `fx<1` heuristic; confirm
+   `intrinsic[0]` has `fx≈` hundreds–thousands, `cx≈640`. For VGGT: intrinsics are scaled from the
+   inference resolution back to 704×1280 target; same sanity checks apply.
 3. **Caption format.** Reuses `train_caption.json`, taking the substring before the first `;`.
 4. **T5 model.** Defaults to `google-t5/t5-11b` (T5-XXL, d_model=1024) per `scripts/get_t5_embeddings.py`.
+
+### VGGT-specific checks (when --rerun-vggt is used):
+
+- **Metadata:** Confirm `meta["geometry_source"] == "vggt-omega"`
+- **Camera consistency:** Verify that adjacent frames' poses are continuous (no sudden jumps)
+- **Depth plausibility:** Check that depth map is reasonable for indoor scenes (typically 0.1–20m)
+- **Parallax quality:** The warped frames should show proper 3D structure recovery; flattened or
+  inverted parallax indicates depth inversion or pose error
 
 ## Not in scope (later steps)
 
