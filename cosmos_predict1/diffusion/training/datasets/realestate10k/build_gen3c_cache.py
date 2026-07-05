@@ -190,14 +190,19 @@ def run_vggt_inference(model, rgb_frames: torch.Tensor, image_resolution: int, d
         (vggt_H, vggt_W),
     )
 
-    depth = predictions["depth"]  # (T,H_vggt,W_vggt,1) or (T,1,H_vggt,W_vggt)
+    depth = predictions["depth"]  # (B, T, H_vggt, W_vggt, 1)
 
     # Resize depth and intrinsics back to original frame resolution
-    extrinsics_np = extrinsics.cpu().numpy()  # (T,3,4)
-    intrinsics_np = intrinsics.cpu().numpy()  # (T,3,3)
+    extrinsics_np = extrinsics.cpu().numpy()  # (B, T, 3, 4)
+    intrinsics_np = intrinsics.cpu().numpy()  # (B, T, 3, 3)
     depth_cpu = depth.cpu().float()
 
     print(f"    [VGGT] depth shape: {depth_cpu.shape}, extrinsics: {extrinsics_np.shape}, intrinsics: {intrinsics_np.shape}")
+
+    # Remove batch dimension (batch size = 1)
+    depth_cpu = depth_cpu.squeeze(0)  # (T, H, W, 1)
+    extrinsics_np = extrinsics_np[0]  # (T, 3, 4)
+    intrinsics_np = intrinsics_np[0]  # (T, 3, 3)
 
     # Normalize depth shape to (T, 1, H, W) for interpolation
     if depth_cpu.ndim == 4 and depth_cpu.shape[-1] == 1:
@@ -207,7 +212,7 @@ def run_vggt_inference(model, rgb_frames: torch.Tensor, image_resolution: int, d
         # Already (T, 1, H, W)
         depth_tensor = depth_cpu
     else:
-        raise ValueError(f"Unexpected depth shape from VGGT: {depth_cpu.shape}")
+        raise ValueError(f"Unexpected depth shape from VGGT after removing batch: {depth_cpu.shape}")
 
     # Scale intrinsics from vggt resolution to target resolution
     scale_x = W / vggt_W
