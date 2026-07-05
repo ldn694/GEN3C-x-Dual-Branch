@@ -46,6 +46,8 @@ Notes
 import argparse
 import json
 import os
+import time
+from datetime import timedelta
 
 import numpy as np
 import torch
@@ -300,7 +302,10 @@ def main():
 
     manifest = []
     processed = 0
+    total_items = len(loader)
+    start_time = time.time()
     for item in loader:
+        clip_start_time = time.time()
         sample_id = item["sample_id"]
         out_path = os.path.join(out_dir, f"{sample_id}.pt")
         if os.path.exists(out_path) and not args.overwrite:
@@ -366,9 +371,21 @@ def main():
         }, out_path)
         manifest.append(sample_id)
         processed += 1
+
+        # ---- timing and ETA ----
+        elapsed_clip = time.time() - clip_start_time
+        elapsed_total = time.time() - start_time
+        avg_time_per_clip = elapsed_total / processed
+        remaining_items = total_items - processed
+        eta_seconds = avg_time_per_clip * remaining_items
+        eta_str = str(timedelta(seconds=int(eta_seconds)))
+        elapsed_str = str(timedelta(seconds=int(elapsed_total)))
+
         geom_src = "vggt" if args.rerun_vggt else "voyager"
-        print(f"[{processed}] wrote {out_path}  video={tuple(video_latent.shape)} "
-              f"pose={tuple(condition_pose_latent.shape)} t5={tuple(t5_emb.shape)} geom={geom_src}")
+        print(f"[{processed}/{total_items}] {elapsed_clip:.1f}s  |  "
+              f"video={tuple(video_latent.shape)} pose={tuple(condition_pose_latent.shape)} "
+              f"t5={tuple(t5_emb.shape)} geom={geom_src}  |  "
+              f"elapsed={elapsed_str} eta={eta_str}")
 
         if args.limit > 0 and processed >= args.limit:
             break
