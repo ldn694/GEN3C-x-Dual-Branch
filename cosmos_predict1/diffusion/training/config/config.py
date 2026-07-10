@@ -18,6 +18,9 @@ from typing import Any, List
 import attrs
 
 from cosmos_predict1.diffusion.training.config.base.model import DefaultModelConfig
+from cosmos_predict1.diffusion.training.config.gen3c.registry import (
+    register_configs as register_configs_gen3c,
+)
 from cosmos_predict1.diffusion.training.config.text2world.registry import (
     register_configs as register_configs_text2world,
 )
@@ -95,6 +98,7 @@ def make_config():
     register_configs_video2world()
     register_configs_video2world_instruction()
     register_configs_video2world_action()
+    register_configs_gen3c()
 
     # experiment config are defined in the experiment folder
     # call import_all_modules_from_package to register them
@@ -102,5 +106,6 @@ def make_config():
     import_all_modules_from_package("cosmos_predict1.diffusion.training.config.video2world", reload=True)
     import_all_modules_from_package("cosmos_predict1.diffusion.training.config.video2world_instruction", reload=True)
     import_all_modules_from_package("cosmos_predict1.diffusion.training.config.video2world_action", reload=True)
+    import_all_modules_from_package("cosmos_predict1.diffusion.training.config.gen3c", reload=True)
 
     return c

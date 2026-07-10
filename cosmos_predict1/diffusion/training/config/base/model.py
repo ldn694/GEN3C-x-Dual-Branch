@@ -71,6 +71,7 @@ class DefaultModelConfig:
     use_dummy_temporal_dim: bool = False  # Whether to use dummy temporal dimension in data
     adjust_video_noise: bool = False  # whether or not adjust video noise accroding to the video length
     peft_control: LazyDict | None = None
+    frame_buffer_max: int = 1  # number of warped source views in the Gen3C point-cloud cache
 
 
 @attrs.define(slots=False)
