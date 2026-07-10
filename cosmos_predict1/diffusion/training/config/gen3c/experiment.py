@@ -122,6 +122,9 @@ gen3c_7b_lora_realestate10k = LazyDict(
                 rope_w_extrapolation_ratio=1,
                 rope_t_extrapolation_ratio=2,
                 in_channels=IN_CHANNELS,
+                # 121 frames at 704x1280 is 56320 tokens after the 2x2 patchify; a 7B DiT cannot
+                # hold those activations on one 80GB card. Recomputing them costs ~30% throughput.
+                use_checkpoint=True,
             ),
             adjust_video_noise=True,
             conditioner=dict(

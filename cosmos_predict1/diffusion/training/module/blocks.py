@@ -1042,6 +1042,9 @@ class GeneralDITTransformerBlock(nn.Module):
         extra_per_block_pos_emb: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if self.use_checkpoint:
+            # use_reentrant=False is required, not cosmetic: the reentrant implementation only
+            # builds a backward graph when an input tensor requires grad. Under LoRA the whole
+            # backbone is frozen, so x does not, and the adapters would silently get no gradient.
             return torch.utils.checkpoint.checkpoint(
                 self._forward,
                 x,
@@ -1051,6 +1054,7 @@ class GeneralDITTransformerBlock(nn.Module):
                 rope_emb_L_1_1_D,
                 adaln_lora_B_3D,
                 extra_per_block_pos_emb,
+                use_reentrant=False,
             )
         else:
             return self._forward(
