@@ -272,6 +272,7 @@ class ProgressBarCallback(Callback):
         loss: torch.Tensor,
         iteration: int = 0,
     ) -> None:
+        self.train_pbar.set_postfix(loss=f"{loss.item():.4f}")
         self.train_pbar.update()
 
     @distributed.rank0_only

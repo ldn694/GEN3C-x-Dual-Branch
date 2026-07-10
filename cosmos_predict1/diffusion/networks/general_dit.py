@@ -35,7 +35,7 @@ from cosmos_predict1.diffusion.module.blocks import (
     Timesteps,
 )
 from cosmos_predict1.diffusion.module.position_embedding import LearnablePosEmbAxis, VideoRopePosition3DEmb
-from cosmos_predict1.utils import log
+from cosmos_predict1.utils import distributed, log
 
 
 class GeneralDIT(nn.Module):
@@ -309,6 +309,11 @@ class GeneralDIT(nn.Module):
                 [x_B_C_T_H_W, padding_mask.unsqueeze(1).repeat(1, 1, x_B_C_T_H_W.shape[2], 1, 1)], dim=1
             )
         x_B_T_H_W_D = self.x_embedder(x_B_C_T_H_W)
+
+        if distributed.is_rank0() and not getattr(self, "_logged_token_count", False):
+            b, t, h, w, _ = x_B_T_H_W_D.shape
+            log.info(f"DiT tokens per sample: {t * h * w} (T={t}, H={h}, W={w}), batch size: {b}")
+            self._logged_token_count = True
 
         if self.extra_per_block_abs_pos_emb:
             extra_pos_emb = self.extra_pos_embedder(x_B_T_H_W_D, fps=fps)
